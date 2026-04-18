@@ -23,6 +23,48 @@ DEFAULT_VCOM = -2.06
 DEFAULT_SPI_BUS = 0
 DEFAULT_SPI_DEVICE = 0
 DEFAULT_SPI_HZ = 24_000_000
+DEFAULT_CMD_HZ = 1_000_000
+DEFAULT_TIMEOUT_SECS = 10.0
+DEFAULT_READY_PIN = 24
+DEFAULT_RESET_PIN = 17
+
+
+class _ConfiguredEPDDisplay:
+    """Small wrapper around IT8951 EPD with the AutoDisplay update logic."""
+
+    def __init__(self, epd, auto_display_cls, constants, rotate=None, mirror=False) -> None:
+        self.epd = epd
+        self._constants = constants
+        self._auto_display = auto_display_cls(epd.width, epd.height, rotate=rotate, mirror=mirror)
+
+    @property
+    def frame_buf(self):
+        return self._auto_display.frame_buf
+
+    @property
+    def width(self) -> int:
+        return self._auto_display.width
+
+    @property
+    def height(self) -> int:
+        return self._auto_display.height
+
+    def draw_full(self, mode) -> None:
+        frame = self._auto_display._get_frame_buf()
+        self._update(frame.tobytes(), (0, 0), self._auto_display.display_dims, mode)
+        self._auto_display.prev_frame = frame
+
+    def clear(self) -> None:
+        self.frame_buf.paste(0xFF, box=(0, 0, self.width, self.height))
+        self.draw_full(self._constants.DisplayModes.INIT)
+
+    def _update(self, data, xy, dims, mode, pixel_format=None) -> None:
+        if pixel_format is None:
+            pixel_format = self._constants.PixelModes.M_4BPP
+
+        self.epd.wait_display_ready()
+        self.epd.load_img_area(data, xy=xy, dims=dims, pixel_format=pixel_format)
+        self.epd.display_area(xy, dims, mode)
 
 
 class ClipboardDisplay:
@@ -42,28 +84,41 @@ class ClipboardDisplay:
         self._spi_bus = int(os.getenv("EPAPER_SPI_BUS", str(DEFAULT_SPI_BUS)))
         self._spi_device = int(os.getenv("EPAPER_SPI_DEVICE", str(DEFAULT_SPI_DEVICE)))
         self._spi_hz = int(os.getenv("EPAPER_SPI_HZ", str(DEFAULT_SPI_HZ)))
+        self._cmd_hz = int(os.getenv("EPAPER_CMD_HZ", str(DEFAULT_CMD_HZ)))
+        self._timeout_secs = float(os.getenv("EPAPER_TIMEOUT_SECS", str(DEFAULT_TIMEOUT_SECS)))
+        self._ready_pin = int(os.getenv("EPAPER_READY_PIN", str(DEFAULT_READY_PIN)))
+        self._reset_pin = int(os.getenv("EPAPER_RESET_PIN", str(DEFAULT_RESET_PIN)))
         self._last_error: str | None = None
 
         # Import here so the module can be imported on non-Pi systems without crashing
         try:
-            from IT8951.display import AutoEPDDisplay
+            from IT8951.display import AutoDisplay
+            from IT8951.interface import EPD
             from IT8951 import constants
 
-            self._display = AutoEPDDisplay(
+            constants.Pins.HRDY = self._ready_pin
+            constants.Pins.RESET = self._reset_pin
+
+            epd = EPD(
                 vcom=self._vcom,
                 bus=self._spi_bus,
                 device=self._spi_device,
-                spi_hz=self._spi_hz,
-                rotate=None,
-                mirror=False,
+                cmd_hz=self._cmd_hz,
+                data_hz=self._spi_hz,
+                timeout_secs=self._timeout_secs,
             )
+            self._display = _ConfiguredEPDDisplay(epd, AutoDisplay, constants, rotate=None, mirror=False)
             self._constants = constants
             log.info(
-                "ClipboardDisplay initialized — SPI %d.%d @ %d Hz, VCOM %.2f",
+                "ClipboardDisplay initialized — SPI %d.%d cmd=%d data=%d Hz, VCOM %.2f, timeout %.1fs, pins reset=%d ready=%d",
                 self._spi_bus,
                 self._spi_device,
+                self._cmd_hz,
                 self._spi_hz,
                 self._vcom,
+                self._timeout_secs,
+                self._reset_pin,
+                self._ready_pin,
             )
         except Exception as exc:
             self._last_error = str(exc)
@@ -102,6 +157,22 @@ class ClipboardDisplay:
     def spi_hz(self) -> int:
         return self._spi_hz
 
+    @property
+    def cmd_hz(self) -> int:
+        return self._cmd_hz
+
+    @property
+    def timeout_secs(self) -> float:
+        return self._timeout_secs
+
+    @property
+    def ready_pin(self) -> int:
+        return self._ready_pin
+
+    @property
+    def reset_pin(self) -> int:
+        return self._reset_pin
+
     def device_summary(self) -> dict[str, str | int | float | None]:
         if self._display is None:
             return {
@@ -113,6 +184,10 @@ class ClipboardDisplay:
                 "spi_bus": self._spi_bus,
                 "spi_device": self._spi_device,
                 "spi_hz": self._spi_hz,
+                "cmd_hz": self._cmd_hz,
+                "timeout_secs": self._timeout_secs,
+                "ready_pin": self._ready_pin,
+                "reset_pin": self._reset_pin,
             }
 
         epd = self._display.epd
@@ -125,6 +200,10 @@ class ClipboardDisplay:
             "spi_bus": self._spi_bus,
             "spi_device": self._spi_device,
             "spi_hz": self._spi_hz,
+            "cmd_hz": self._cmd_hz,
+            "timeout_secs": self._timeout_secs,
+            "ready_pin": self._ready_pin,
+            "reset_pin": self._reset_pin,
         }
 
     def clear(self) -> None:

@@ -21,6 +21,19 @@ def _device_status(path: str) -> str:
     return "present" if Path(path).exists() else "missing"
 
 
+def _load_epaper_config() -> dict[str, int | float]:
+    return {
+        "spi_bus": int(os.getenv("EPAPER_SPI_BUS", "0")),
+        "spi_device": int(os.getenv("EPAPER_SPI_DEVICE", "0")),
+        "spi_hz": int(os.getenv("EPAPER_SPI_HZ", "24000000")),
+        "cmd_hz": int(os.getenv("EPAPER_CMD_HZ", "1000000")),
+        "timeout_secs": float(os.getenv("EPAPER_TIMEOUT_SECS", "10.0")),
+        "ready_pin": int(os.getenv("EPAPER_READY_PIN", "24")),
+        "reset_pin": int(os.getenv("EPAPER_RESET_PIN", "17")),
+        "vcom": float(os.getenv("EPAPER_VCOM", "-2.06")),
+    }
+
+
 def check_spi_devices() -> int:
     """Check whether SPI device nodes exist and can be opened."""
     env_path = load_project_env()
@@ -97,8 +110,10 @@ def test_epaper(text: str, clear_after: bool) -> int:
         if not display.is_available:
             print(
                 "ePaper unavailable. "
-                f"SPI {display.spi_bus}.{display.spi_device} @ {display.spi_hz} Hz, "
-                f"VCOM {display.vcom:.2f}."
+                f"SPI {display.spi_bus}.{display.spi_device}, "
+                f"cmd={display.cmd_hz} Hz, data={display.spi_hz} Hz, "
+                f"timeout={display.timeout_secs:.1f}s, VCOM {display.vcom:.2f}, "
+                f"reset={display.reset_pin}, ready={display.ready_pin}."
             )
             if display.last_error:
                 print(f"Driver error: {display.last_error}")
@@ -111,8 +126,10 @@ def test_epaper(text: str, clear_after: bool) -> int:
             f"{summary['width']}x{summary['height']}, "
             f"firmware={summary['firmware_version']}, "
             f"lut={summary['lut_version']}, "
-            f"SPI {summary['spi_bus']}.{summary['spi_device']} @ {summary['spi_hz']} Hz, "
-            f"VCOM {summary['vcom']:.2f}"
+            f"SPI {summary['spi_bus']}.{summary['spi_device']}, "
+            f"cmd={summary['cmd_hz']} Hz, data={summary['spi_hz']} Hz, "
+            f"timeout={summary['timeout_secs']:.1f}s, VCOM {summary['vcom']:.2f}, "
+            f"reset={summary['reset_pin']}, ready={summary['ready_pin']}"
         )
 
         print("Clearing ePaper display")
@@ -125,6 +142,66 @@ def test_epaper(text: str, clear_after: bool) -> int:
         return 0
     finally:
         display.close()
+
+
+def probe_epaper_ready(duration: float, interval: float, pulse_reset: bool) -> int:
+    """Read the IT8951 ready pin and optionally pulse reset before sampling."""
+    env_path = load_project_env()
+    if env_path is not None:
+        print(f"Loaded environment from {env_path}")
+
+    config = _load_epaper_config()
+
+    try:
+        import RPi.GPIO as GPIO
+    except Exception as exc:
+        print(f"RPi.GPIO import failed: {exc}")
+        return 1
+
+    ready_pin = int(config["ready_pin"])
+    reset_pin = int(config["reset_pin"])
+
+    print(
+        "ePaper pin probe: "
+        f"reset={reset_pin}, ready={ready_pin}, sample_window={duration:.1f}s, interval={interval:.3f}s"
+    )
+
+    GPIO.setmode(GPIO.BCM)
+    GPIO.setwarnings(False)
+    GPIO.setup(ready_pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+    GPIO.setup(reset_pin, GPIO.OUT, initial=GPIO.HIGH)
+
+    try:
+        initial_state = GPIO.input(ready_pin)
+        print(f"Initial HRDY level: {initial_state}")
+
+        if pulse_reset:
+            print("Pulsing RESET low for 100 ms")
+            GPIO.output(reset_pin, GPIO.LOW)
+            time.sleep(0.1)
+            GPIO.output(reset_pin, GPIO.HIGH)
+
+        high_seen = False
+        start = time.monotonic()
+        while True:
+            elapsed = time.monotonic() - start
+            state = GPIO.input(ready_pin)
+            print(f"t={elapsed:>4.1f}s HRDY={state}")
+            if state:
+                high_seen = True
+                break
+            if elapsed >= duration:
+                break
+            time.sleep(interval)
+
+        if high_seen:
+            print("HRDY went high. The panel is signaling ready.")
+            return 0
+
+        print("HRDY stayed low for the entire sample window.")
+        return 1
+    finally:
+        GPIO.cleanup([ready_pin, reset_pin])
 
 
 def main() -> int:
@@ -141,6 +218,11 @@ def main() -> int:
     epaper_parser.add_argument("--text", default="CLANKER CLIPBOARD", help="Text to render")
     epaper_parser.add_argument("--clear-after", action="store_true", help="Clear the display after drawing")
 
+    ready_parser = subparsers.add_parser("probe-epaper-ready", help="Sample the IT8951 HRDY pin and optionally pulse reset")
+    ready_parser.add_argument("--duration", type=float, default=12.0, help="Seconds to sample HRDY after reset")
+    ready_parser.add_argument("--interval", type=float, default=0.25, help="Seconds between HRDY samples")
+    ready_parser.add_argument("--no-reset-pulse", action="store_true", help="Do not pulse RESET before sampling")
+
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
@@ -151,6 +233,12 @@ def main() -> int:
         return probe_adc(samples=args.samples, interval=args.interval)
     if args.command == "test-epaper":
         return test_epaper(text=args.text, clear_after=args.clear_after)
+    if args.command == "probe-epaper-ready":
+        return probe_epaper_ready(
+            duration=args.duration,
+            interval=args.interval,
+            pulse_reset=not args.no_reset_pulse,
+        )
     return 1
 
 

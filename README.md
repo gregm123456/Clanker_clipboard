@@ -139,6 +139,10 @@ grep -q '^EPAPER_VCOM=' .env && sed -i 's/^EPAPER_VCOM=.*/EPAPER_VCOM=-2.06/' .e
 grep -q '^EPAPER_SPI_BUS=' .env && sed -i 's/^EPAPER_SPI_BUS=.*/EPAPER_SPI_BUS=0/' .env || echo 'EPAPER_SPI_BUS=0' >> .env
 grep -q '^EPAPER_SPI_DEVICE=' .env && sed -i 's/^EPAPER_SPI_DEVICE=.*/EPAPER_SPI_DEVICE=0/' .env || echo 'EPAPER_SPI_DEVICE=0' >> .env
 grep -q '^EPAPER_SPI_HZ=' .env && sed -i 's/^EPAPER_SPI_HZ=.*/EPAPER_SPI_HZ=24000000/' .env || echo 'EPAPER_SPI_HZ=24000000' >> .env
+grep -q '^EPAPER_CMD_HZ=' .env && sed -i 's/^EPAPER_CMD_HZ=.*/EPAPER_CMD_HZ=1000000/' .env || echo 'EPAPER_CMD_HZ=1000000' >> .env
+grep -q '^EPAPER_TIMEOUT_SECS=' .env && sed -i 's/^EPAPER_TIMEOUT_SECS=.*/EPAPER_TIMEOUT_SECS=10.0/' .env || echo 'EPAPER_TIMEOUT_SECS=10.0' >> .env
+grep -q '^EPAPER_READY_PIN=' .env && sed -i 's/^EPAPER_READY_PIN=.*/EPAPER_READY_PIN=24/' .env || echo 'EPAPER_READY_PIN=24' >> .env
+grep -q '^EPAPER_RESET_PIN=' .env && sed -i 's/^EPAPER_RESET_PIN=.*/EPAPER_RESET_PIN=17/' .env || echo 'EPAPER_RESET_PIN=17' >> .env
 grep -q '^MCP3008_SPI_BUS=' .env && sed -i 's/^MCP3008_SPI_BUS=.*/MCP3008_SPI_BUS=0/' .env || echo 'MCP3008_SPI_BUS=0' >> .env
 grep -q '^MCP3008_SPI_DEVICE=' .env && sed -i 's/^MCP3008_SPI_DEVICE=.*/MCP3008_SPI_DEVICE=1/' .env || echo 'MCP3008_SPI_DEVICE=1' >> .env
 ```
@@ -149,6 +153,10 @@ If `.env` already had these keys, edit it so they match exactly:
 - `EPAPER_SPI_BUS=0`
 - `EPAPER_SPI_DEVICE=0` (display on CE0)
 - `EPAPER_SPI_HZ=24000000`
+- `EPAPER_CMD_HZ=1000000`
+- `EPAPER_TIMEOUT_SECS=10.0`
+- `EPAPER_READY_PIN=24`
+- `EPAPER_RESET_PIN=17`
 - `MCP3008_SPI_BUS=0`
 - `MCP3008_SPI_DEVICE=1` (ADC on CE1)
 
@@ -223,7 +231,17 @@ Notes:
 - A good result is: SPI opens cleanly, raw values stay in the `0..1023` range, and channels change when you move wiring or later attach knobs.
 - With no knobs attached yet, floating channels may drift. That still proves the ADC path is alive if reads are stable enough to vary plausibly instead of hard-failing.
 
-3. Smoke-test the IT8951 ePaper on CE0:
+3. Probe the IT8951 ready/reset handshake:
+
+```bash
+cd ~/Clanker_clipboard
+source .venv/bin/activate
+python -m clipboard.diagnostics probe-epaper-ready
+```
+
+Expected result: after the reset pulse, `HRDY` should go high within the sample window. If it stays low for the full window, the failure is below Python display init and usually means a `BUSY/HRDY` or `RESET` wiring/config issue.
+
+4. Smoke-test the IT8951 ePaper on CE0:
 
 ```bash
 cd ~/Clanker_clipboard
@@ -235,6 +253,7 @@ If that reports the display as unavailable, verify:
 - the `IT8951` Python package or local driver is installed on the Pi
 - `EPAPER_VCOM=-2.06` in `.env`
 - `EPAPER_SPI_BUS=0` and `EPAPER_SPI_DEVICE=0` in `.env`
+- `EPAPER_READY_PIN=24` and `EPAPER_RESET_PIN=17` in `.env`
 - DIP switch is set to SPI mode
 - the display CS line is on CE0 and the ADC CS line is on CE1
 
