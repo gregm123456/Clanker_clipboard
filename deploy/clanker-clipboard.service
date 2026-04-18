@@ -1,0 +1,15 @@
+[Unit]
+Description=clanker-clipboard — Clanker clipboard input device service (Raspberry Pi Zero 2W)
+After=network.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/Clanker_clipboard
+EnvironmentFile=-/home/pi/Clanker_clipboard/.env
+ExecStart=/usr/bin/python3 /home/pi/Clanker_clipboard/main.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

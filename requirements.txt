@@ -1,0 +1,10 @@
+# Zero 2W — keep lean, no large ML frameworks
+spidev>=3.5
+RPi.GPIO>=0.7.1
+Pillow>=9.0.0
+# IT8951 ePaper driver (install from local driver or pip-compatible fork)
+# IT8951
+
+# Lightweight HTTP for serving state to other Clanker nodes
+# (http.server from stdlib is sufficient for simple GET endpoints;
+#  add Flask or FastAPI only if needed and resources allow)
