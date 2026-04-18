@@ -52,6 +52,39 @@ class ClipboardDisplay:
             self._display.frame_buf.paste(image, [0, 0])
             self._display.draw_full(self._constants.DisplayModes.GL16)
 
+    @property
+    def is_available(self) -> bool:
+        return self._display is not None and self._constants is not None
+
+    def clear(self) -> None:
+        """Clear the display to white if hardware is available."""
+        if self._display is None:
+            return
+        self._display.clear()
+
+    def show_test_pattern(self, text: str = "CLANKER CLIPBOARD") -> None:
+        """Render a simple full-screen test pattern for hardware bring-up."""
+        img = Image.new("L", (DISPLAY_WIDTH, DISPLAY_HEIGHT), 255)
+        draw = ImageDraw.Draw(img)
+
+        draw.rectangle([12, 12, DISPLAY_WIDTH - 12, DISPLAY_HEIGHT - 12], outline=0, width=6)
+        draw.line([80, 220, DISPLAY_WIDTH - 80, 220], fill=0, width=4)
+        draw.line([80, DISPLAY_HEIGHT - 220, DISPLAY_WIDTH - 80, DISPLAY_HEIGHT - 220], fill=0, width=4)
+        draw.rectangle([120, 300, 420, 600], outline=0, width=5)
+        draw.ellipse([DISPLAY_WIDTH - 420, 300, DISPLAY_WIDTH - 120, 600], outline=0, width=5)
+
+        font = self._load_font(72)
+        sub_font = self._load_font(42)
+
+        title_box = draw.textbbox((0, 0), text, font=font)
+        title_width = title_box[2] - title_box[0]
+        draw.text(((DISPLAY_WIDTH - title_width) / 2, 90), text, fill=0, font=font)
+        draw.text((160, 680), "IT8951 full refresh test", fill=0, font=sub_font)
+        draw.text((160, 760), f"VCOM {VCOM:.2f}", fill=0, font=sub_font)
+
+        self._display.frame_buf.paste(img, [0, 0])
+        self._display.draw_full(self._constants.DisplayModes.GL16)
+
     def _render(self, state: dict) -> Image.Image:
         """Build a PIL image representing the current state."""
         img = Image.new("L", (DISPLAY_WIDTH, DISPLAY_HEIGHT), 255)
@@ -73,6 +106,12 @@ class ClipboardDisplay:
             y += 60
 
         return img
+
+    def _load_font(self, size: int) -> ImageFont.ImageFont | ImageFont.FreeTypeFont:
+        try:
+            return ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", size)
+        except Exception:
+            return ImageFont.load_default()
 
     def close(self) -> None:
         log.info("ClipboardDisplay closed")

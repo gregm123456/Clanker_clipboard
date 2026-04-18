@@ -7,8 +7,8 @@ and several push buttons via GPIO.
 Node target: Raspberry Pi Zero 2W
 """
 
-import os
 import logging
+import os
 
 log = logging.getLogger(__name__)
 
@@ -20,6 +20,10 @@ KNOB_CHANNELS = [0, 1, 2, 3]
 
 # GPIO BCM pin numbers for buttons (extend as needed)
 BUTTON_PINS: list[int] = []  # TODO: fill in actual GPIO pins
+
+# ADC and ePaper follow the picker wiring: display on CE0, MCP3008 on CE1.
+DEFAULT_SPI_BUS = 0
+DEFAULT_SPI_DEVICE = 1
 
 
 def _voltage_to_position(voltage: float, v_ref: float = 3.3, positions: int = 8) -> int:
@@ -50,8 +54,8 @@ class ClipboardHardware:
         import spidev
         import RPi.GPIO as GPIO
 
-        self._spi_bus = spi_bus if spi_bus is not None else int(os.getenv("MCP3008_SPI_BUS", "0"))
-        self._spi_device = spi_device if spi_device is not None else int(os.getenv("MCP3008_SPI_DEVICE", "0"))
+        self._spi_bus = spi_bus if spi_bus is not None else int(os.getenv("MCP3008_SPI_BUS", str(DEFAULT_SPI_BUS)))
+        self._spi_device = spi_device if spi_device is not None else int(os.getenv("MCP3008_SPI_DEVICE", str(DEFAULT_SPI_DEVICE)))
         self._v_ref = v_ref
 
         self._spi = spidev.SpiDev()
@@ -73,12 +77,25 @@ class ClipboardHardware:
 
     def _read_adc(self, channel: int) -> float:
         """Read raw 10-bit value from MCP3008 channel and convert to voltage."""
+        raw = self.read_raw_adc(channel)
+        return (raw / 1023.0) * self._v_ref
+
+    def read_raw_adc(self, channel: int) -> int:
+        """Read raw 10-bit value from an MCP3008 channel."""
         if channel < 0 or channel > 7:
             raise ValueError(f"MCP3008 channel must be 0–7, got {channel}")
         cmd = [1, (8 + channel) << 4, 0]
         reply = self._spi.xfer2(cmd)
-        raw = ((reply[1] & 3) << 8) | reply[2]
-        return (raw / 1023.0) * self._v_ref
+        return ((reply[1] & 3) << 8) | reply[2]
+
+    def read_all_adc(self) -> list[dict[str, float | int]]:
+        """Return raw and voltage readings for all MCP3008 channels."""
+        readings: list[dict[str, float | int]] = []
+        for channel in range(8):
+            raw = self.read_raw_adc(channel)
+            voltage = (raw / 1023.0) * self._v_ref
+            readings.append({"channel": channel, "raw": raw, "voltage": voltage})
+        return readings
 
     def read_state(self) -> dict:
         """Return current knob positions and button states."""
