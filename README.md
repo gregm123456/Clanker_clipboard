@@ -164,15 +164,15 @@ If `.env` already had these keys, edit it so they match exactly:
 
 The bundled unit file currently assumes:
 
-- user: `pi`
-- repo path: `/home/pi/Clanker_clipboard`
+- user: `gregm`
+- repo path: `/home/gregm/Clanker_clipboard`
 
-If your device uses a different user (for example `gregm`) or a different path, update `deploy/clanker-clipboard.service` before installing it.
+If your device uses a different user or a different path, update `deploy/clanker-clipboard.service` before installing it.
 
 For venv-based deployment, ensure `ExecStart` points to the venv interpreter, for example:
 
 ```ini
-ExecStart=/home/<user>/Clanker_clipboard/.venv/bin/python /home/<user>/Clanker_clipboard/main.py
+ExecStart=/home/gregm/Clanker_clipboard/.venv/bin/python /home/gregm/Clanker_clipboard/main.py
 ```
 
 ### 6. Install and start service
