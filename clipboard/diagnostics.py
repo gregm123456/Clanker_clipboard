@@ -8,6 +8,7 @@ import os
 import time
 from pathlib import Path
 
+from clipboard.env import load_project_env
 from clipboard.display import ClipboardDisplay
 from clipboard.hw import ClipboardHardware
 
@@ -22,6 +23,10 @@ def _device_status(path: str) -> str:
 
 def check_spi_devices() -> int:
     """Check whether SPI device nodes exist and can be opened."""
+    env_path = load_project_env()
+    if env_path is not None:
+        print(f"Loaded environment from {env_path}")
+
     print("SPI device nodes:")
     for path in ("/dev/spidev0.0", "/dev/spidev0.1"):
         print(f"  {path}: {_device_status(path)}")
@@ -53,6 +58,10 @@ def check_spi_devices() -> int:
 
 def probe_adc(samples: int, interval: float) -> int:
     """Read MCP3008 channels repeatedly and print raw and voltage values."""
+    env_path = load_project_env()
+    if env_path is not None:
+        print(f"Loaded environment from {env_path}")
+
     print(
         "ADC probe: MCP3008 does not expose an identity register; success means SPI opens and readings are plausible and change when the wiring or inputs move."
     )
@@ -79,11 +88,32 @@ def probe_adc(samples: int, interval: float) -> int:
 
 def test_epaper(text: str, clear_after: bool) -> int:
     """Attempt a simple full-screen ePaper draw."""
+    env_path = load_project_env()
+    if env_path is not None:
+        print(f"Loaded environment from {env_path}")
+
     display = ClipboardDisplay()
     try:
         if not display.is_available:
-            print("ePaper unavailable. Check IT8951 package install, VCOM, and SPI wiring.")
+            print(
+                "ePaper unavailable. "
+                f"SPI {display.spi_bus}.{display.spi_device} @ {display.spi_hz} Hz, "
+                f"VCOM {display.vcom:.2f}."
+            )
+            if display.last_error:
+                print(f"Driver error: {display.last_error}")
+            print("Check IT8951 install, CE0 wiring, HRDY/RESET GPIO wiring, VCOM, and SPI enablement.")
             return 1
+
+        summary = display.device_summary()
+        print(
+            "ePaper detected: "
+            f"{summary['width']}x{summary['height']}, "
+            f"firmware={summary['firmware_version']}, "
+            f"lut={summary['lut_version']}, "
+            f"SPI {summary['spi_bus']}.{summary['spi_device']} @ {summary['spi_hz']} Hz, "
+            f"VCOM {summary['vcom']:.2f}"
+        )
 
         print("Clearing ePaper display")
         display.clear()

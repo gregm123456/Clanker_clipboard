@@ -10,6 +10,8 @@ Node target: Raspberry Pi Zero 2W
 import logging
 import os
 
+from clipboard.env import load_project_env
+
 log = logging.getLogger(__name__)
 
 # Number of knobs; each has 8 positions (0–7) via resistor ladder
@@ -51,6 +53,7 @@ class ClipboardHardware:
         spi_device: int | None = None,
         v_ref: float = 3.3,
     ) -> None:
+        load_project_env()
         import spidev
         import RPi.GPIO as GPIO
 

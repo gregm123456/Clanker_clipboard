@@ -11,13 +11,18 @@ import os
 import logging
 from PIL import Image, ImageDraw, ImageFont
 
+from clipboard.env import load_project_env
+
 log = logging.getLogger(__name__)
 
 # Display resolution for the 6-inch IT8951 panel (adjust to match your panel)
 DISPLAY_WIDTH = 1448
 DISPLAY_HEIGHT = 1072
 
-VCOM = float(os.getenv("EPAPER_VCOM", "-1.45"))
+DEFAULT_VCOM = -2.06
+DEFAULT_SPI_BUS = 0
+DEFAULT_SPI_DEVICE = 0
+DEFAULT_SPI_HZ = 24_000_000
 
 
 class ClipboardDisplay:
@@ -32,15 +37,36 @@ class ClipboardDisplay:
     """
 
     def __init__(self) -> None:
+        load_project_env()
+        self._vcom = float(os.getenv("EPAPER_VCOM", str(DEFAULT_VCOM)))
+        self._spi_bus = int(os.getenv("EPAPER_SPI_BUS", str(DEFAULT_SPI_BUS)))
+        self._spi_device = int(os.getenv("EPAPER_SPI_DEVICE", str(DEFAULT_SPI_DEVICE)))
+        self._spi_hz = int(os.getenv("EPAPER_SPI_HZ", str(DEFAULT_SPI_HZ)))
+        self._last_error: str | None = None
+
         # Import here so the module can be imported on non-Pi systems without crashing
         try:
             from IT8951.display import AutoEPDDisplay
             from IT8951 import constants
 
-            self._display = AutoEPDDisplay(vcom=VCOM, rotate=None, mirror=False)
+            self._display = AutoEPDDisplay(
+                vcom=self._vcom,
+                bus=self._spi_bus,
+                device=self._spi_device,
+                spi_hz=self._spi_hz,
+                rotate=None,
+                mirror=False,
+            )
             self._constants = constants
-            log.info("ClipboardDisplay initialized — VCOM %.2f", VCOM)
+            log.info(
+                "ClipboardDisplay initialized — SPI %d.%d @ %d Hz, VCOM %.2f",
+                self._spi_bus,
+                self._spi_device,
+                self._spi_hz,
+                self._vcom,
+            )
         except Exception as exc:
+            self._last_error = str(exc)
             log.warning("ePaper display unavailable: %s — running in headless mode", exc)
             self._display = None
             self._constants = None
@@ -55,6 +81,51 @@ class ClipboardDisplay:
     @property
     def is_available(self) -> bool:
         return self._display is not None and self._constants is not None
+
+    @property
+    def last_error(self) -> str | None:
+        return self._last_error
+
+    @property
+    def vcom(self) -> float:
+        return self._vcom
+
+    @property
+    def spi_bus(self) -> int:
+        return self._spi_bus
+
+    @property
+    def spi_device(self) -> int:
+        return self._spi_device
+
+    @property
+    def spi_hz(self) -> int:
+        return self._spi_hz
+
+    def device_summary(self) -> dict[str, str | int | float | None]:
+        if self._display is None:
+            return {
+                "width": None,
+                "height": None,
+                "firmware_version": None,
+                "lut_version": None,
+                "vcom": self._vcom,
+                "spi_bus": self._spi_bus,
+                "spi_device": self._spi_device,
+                "spi_hz": self._spi_hz,
+            }
+
+        epd = self._display.epd
+        return {
+            "width": epd.width,
+            "height": epd.height,
+            "firmware_version": getattr(epd, "firmware_version", None),
+            "lut_version": getattr(epd, "lut_version", None),
+            "vcom": self._vcom,
+            "spi_bus": self._spi_bus,
+            "spi_device": self._spi_device,
+            "spi_hz": self._spi_hz,
+        }
 
     def clear(self) -> None:
         """Clear the display to white if hardware is available."""
@@ -80,7 +151,7 @@ class ClipboardDisplay:
         title_width = title_box[2] - title_box[0]
         draw.text(((DISPLAY_WIDTH - title_width) / 2, 90), text, fill=0, font=font)
         draw.text((160, 680), "IT8951 full refresh test", fill=0, font=sub_font)
-        draw.text((160, 760), f"VCOM {VCOM:.2f}", fill=0, font=sub_font)
+        draw.text((160, 760), f"VCOM {self._vcom:.2f}", fill=0, font=sub_font)
 
         self._display.frame_buf.paste(img, [0, 0])
         self._display.draw_full(self._constants.DisplayModes.GL16)

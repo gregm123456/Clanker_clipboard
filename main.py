@@ -11,11 +11,17 @@ Node target: Raspberry Pi Zero 2W
 import time
 import logging
 
+from clipboard.env import load_project_env
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
 
 
 def main() -> None:
+    env_path = load_project_env()
+    if env_path is not None:
+        log.info("Loaded environment from %s", env_path)
+
     log.info("Clanker_clipboard starting")
 
     # TODO: initialize hardware

@@ -17,6 +17,8 @@ Important hardware precautions from Waveshare:
 - Set the IT8951 board DIP switch to SPI mode before boot.
 - Use the panel-specific VCOM value printed on the FPC cable.
 
+This panel's VCOM for Clanker_clipboard is `-2.06`.
+
 ## Fresh-device requirements
 
 Before this service can run on a brand-new Pi Zero 2W, the device must have:
@@ -27,7 +29,7 @@ Before this service can run on a brand-new Pi Zero 2W, the device must have:
 - Access to `/dev/spidev0.0` and `/dev/spidev0.1`
 - Python packages from `requirements.txt`
 - IT8951 Python driver installed (not included in `requirements.txt`)
-- `.env` created from `.env.example` with a valid `EPAPER_VCOM`
+- `.env` created from `.env.example` with `EPAPER_VCOM=-2.06`
 
 Wiring convention (matches picker project):
 
@@ -93,7 +95,21 @@ python -m pip install -r requirements.txt
 
 ### 3. Install IT8951 driver
 
-Install the IT8951 Python package or your local IT8951 fork in the same Python environment used to run the service.
+For Clanker_clipboard, the best-path is to install the Python IT8951 driver directly
+into the project `.venv` and skip building the vendor C demo.
+
+From inside `~/Clanker_clipboard` with `.venv` activated, run:
+
+```bash
+# Recommended path (works with this service code)
+python -m pip install "git+https://github.com/GregDMeyer/IT8951.git"
+```
+
+Confirm installation landed in the active venv:
+
+```bash
+python -m pip show IT8951
+```
 
 Validate imports:
 
@@ -107,30 +123,32 @@ print("imports ok")
 PY
 ```
 
-Optional vendor verification path (Waveshare C demo):
+If `imports ok` prints, continue with Clanker diagnostics and service setup. The
+vendor C demo is not required for this service.
 
-```bash
-git clone https://github.com/waveshare/IT8951-ePaper.git
-cd IT8951-ePaper/Raspberry
-sudo make clean
-sudo make -j4
-
-# Run with your panel VCOM and mode 0 (INIT/clear path in vendor demo)
-sudo ./epd <VCOM_FROM_FPC> 0
-```
-
-For Raspberry Pi Zero 2W, this vendor demo path is optional and primarily useful
-as a low-level board verification step if Python-level IT8951 init fails.
+Optional note: if you independently choose to test Waveshare's upstream C demo,
+treat it as separate from Clanker runtime validation. Do not block service
+bring-up on C-demo compilation.
 
 ### 4. Configure environment file
 
 ```bash
 cp .env.example .env
+
+grep -q '^EPAPER_VCOM=' .env && sed -i 's/^EPAPER_VCOM=.*/EPAPER_VCOM=-2.06/' .env || echo 'EPAPER_VCOM=-2.06' >> .env
+grep -q '^EPAPER_SPI_BUS=' .env && sed -i 's/^EPAPER_SPI_BUS=.*/EPAPER_SPI_BUS=0/' .env || echo 'EPAPER_SPI_BUS=0' >> .env
+grep -q '^EPAPER_SPI_DEVICE=' .env && sed -i 's/^EPAPER_SPI_DEVICE=.*/EPAPER_SPI_DEVICE=0/' .env || echo 'EPAPER_SPI_DEVICE=0' >> .env
+grep -q '^EPAPER_SPI_HZ=' .env && sed -i 's/^EPAPER_SPI_HZ=.*/EPAPER_SPI_HZ=24000000/' .env || echo 'EPAPER_SPI_HZ=24000000' >> .env
+grep -q '^MCP3008_SPI_BUS=' .env && sed -i 's/^MCP3008_SPI_BUS=.*/MCP3008_SPI_BUS=0/' .env || echo 'MCP3008_SPI_BUS=0' >> .env
+grep -q '^MCP3008_SPI_DEVICE=' .env && sed -i 's/^MCP3008_SPI_DEVICE=.*/MCP3008_SPI_DEVICE=1/' .env || echo 'MCP3008_SPI_DEVICE=1' >> .env
 ```
 
-Set at least:
+If `.env` already had these keys, edit it so they match exactly:
 
-- `EPAPER_VCOM` to the value printed on your display ribbon
+- `EPAPER_VCOM=-2.06`
+- `EPAPER_SPI_BUS=0`
+- `EPAPER_SPI_DEVICE=0` (display on CE0)
+- `EPAPER_SPI_HZ=24000000`
 - `MCP3008_SPI_BUS=0`
 - `MCP3008_SPI_DEVICE=1` (ADC on CE1)
 
@@ -182,6 +200,8 @@ python main.py
 
 These checks are intended for first power-on over SSH to the Pi Zero 2W and do not start the long-running service.
 
+The diagnostics below now auto-load `.env` from the project root, so you do not need to `source .env` first.
+
 1. Confirm SPI device nodes and open tests:
 
 ```bash
@@ -213,7 +233,8 @@ python -m clipboard.diagnostics test-epaper --text "CLANKER EPAPER TEST"
 
 If that reports the display as unavailable, verify:
 - the `IT8951` Python package or local driver is installed on the Pi
-- `EPAPER_VCOM` in `.env` matches the panel
+- `EPAPER_VCOM=-2.06` in `.env`
+- `EPAPER_SPI_BUS=0` and `EPAPER_SPI_DEVICE=0` in `.env`
 - DIP switch is set to SPI mode
 - the display CS line is on CE0 and the ADC CS line is on CE1
 
