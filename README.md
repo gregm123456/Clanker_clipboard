@@ -220,6 +220,48 @@ These checks are intended for first power-on over SSH to the Pi Zero 2W and do n
 
 The diagnostics below now auto-load `.env` from the project root, so you do not need to `source .env` first.
 
+### clipboard.diagnostics command reference
+
+Run from the project root with the venv active:
+
+```bash
+python -m clipboard.diagnostics <command> [options]
+```
+
+Available commands:
+
+- `check-spi`
+	- Verifies `/dev/spidev0.0` and `/dev/spidev0.1` exist and can be opened.
+	- Options: none.
+	- Exit: non-zero if any SPI open test fails.
+
+- `probe-adc`
+	- Repeatedly reads all MCP3008 channels and prints raw/voltage values.
+	- Options:
+		- `--samples` (int, default: `20`)
+		- `--interval` (float seconds, default: `0.25`)
+
+- `probe-epaper-ready`
+	- Samples IT8951 `HRDY` and optionally pulses `RESET` first.
+	- Options:
+		- `--duration` (float seconds, default: `12.0`)
+		- `--interval` (float seconds, default: `0.25`)
+		- `--no-reset-pulse` (skip the startup reset pulse)
+	- Exit: `0` only if `HRDY` goes high in the sample window.
+
+- `test-epaper`
+	- Initializes IT8951 display, clears screen, and draws a test pattern.
+	- Options:
+		- `--text` (string, default: `CLANKER CLIPBOARD`)
+		- `--clear-after` (clear screen after drawing)
+	- Exit: non-zero if display init fails/unavailable.
+
+For all commands, see top-level help:
+
+```bash
+python -m clipboard.diagnostics --help
+```
+
 1. Confirm SPI device nodes and open tests:
 
 ```bash
