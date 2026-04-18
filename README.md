@@ -204,6 +204,16 @@ source .venv/bin/activate
 python main.py
 ```
 
+## Manual ePaper reset
+
+If the panel needs a manual clear/reset outside the main service loop:
+
+```bash
+cd ~/Clanker_clipboard
+source .venv/bin/activate
+python reset_epaper.py
+```
+
 ## Hardware bring-up
 
 These checks are intended for first power-on over SSH to the Pi Zero 2W and do not start the long-running service.
