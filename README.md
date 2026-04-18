@@ -241,6 +241,17 @@ python -m clipboard.diagnostics probe-epaper-ready
 
 Expected result: after the reset pulse, `HRDY` should go high within the sample window. If it stays low for the full window, the failure is below Python display init and usually means a `BUSY/HRDY` or `RESET` wiring/config issue.
 
+If `HRDY stayed low for the entire sample window`:
+
+- treat the problem as hardware-path bring-up, not a Clanker_clipboard software bug
+- verify the ePaper board is powered and the ribbon cable is fully seated before boot
+- verify the IT8951 board DIP switch is in SPI mode
+- verify `RST -> GPIO17` and `HRDY/BUSY -> GPIO24` exactly as wired on the working reference setup
+- verify the display remains on CE0 and the MCP3008 remains on CE1
+- if the same physical hardware previously worked with the reference project, re-run the reference project's lowest-level IT8951 probe on the same Pi before changing more service code
+
+Only continue to the `test-epaper` step after `probe-epaper-ready` reports that `HRDY` goes high.
+
 4. Smoke-test the IT8951 ePaper on CE0:
 
 ```bash
