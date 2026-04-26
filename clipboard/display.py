@@ -130,8 +130,7 @@ class ClipboardDisplay:
         """Render current knob/button state to the ePaper display."""
         image = self._render(state)
         if self._display is not None:
-            self._display.frame_buf.paste(image, [0, 0])
-            self._display.draw_full(self._constants.DisplayModes.GL16)
+            self._display_image_full(image)
 
     @property
     def is_available(self) -> bool:
@@ -232,8 +231,38 @@ class ClipboardDisplay:
         draw.text((160, 680), "IT8951 full refresh test", fill=0, font=sub_font)
         draw.text((160, 760), f"VCOM {self._vcom:.2f}", fill=0, font=sub_font)
 
-        self._display.frame_buf.paste(img, [0, 0])
-        self._display.draw_full(self._constants.DisplayModes.GL16)
+        if self._display is not None:
+            self._display_image_full(img)
+
+    def _display_image_full(self, img: Image.Image) -> None:
+        """Prepare and send a full-frame image using a stable grayscale mode."""
+        prepared = self._prepare_image(img)
+        self._display.frame_buf.paste(prepared, [0, 0])
+
+        full_mode = getattr(self._constants.DisplayModes, "GC16", None)
+        if full_mode is None:
+            full_mode = getattr(self._constants.DisplayModes, "GL16")
+        self._display.draw_full(full_mode)
+
+    def _prepare_image(self, img: Image.Image) -> Image.Image:
+        """Match picker image prep: grayscale canvas + 4bpp-style quantization."""
+        if img.mode != "L":
+            img = img.convert("L")
+
+        resized = img.copy()
+        resized.thumbnail((DISPLAY_WIDTH, DISPLAY_HEIGHT), Image.LANCZOS)
+
+        prepared = Image.new("L", (DISPLAY_WIDTH, DISPLAY_HEIGHT), 0xFF)
+        x = (DISPLAY_WIDTH - resized.width) // 2
+        y = (DISPLAY_HEIGHT - resized.height) // 2
+        prepared.paste(resized, (x, y))
+
+        try:
+            quantized = prepared.quantize(colors=16, method=Image.FLOYDSTEINBERG)
+        except (AttributeError, ValueError):
+            quantized = prepared.quantize(colors=16)
+
+        return quantized.convert("L")
 
     def _render(self, state: dict) -> Image.Image:
         """Build a PIL image representing the current state."""
