@@ -111,8 +111,7 @@ def test_epaper(text: str, clear_after: bool, render_strategy: str) -> int:
             print(
                 "ePaper unavailable. "
                 f"SPI {display.spi_bus}.{display.spi_device}, "
-                f"cmd={display.cmd_hz} Hz, data={display.spi_hz} Hz, "
-                f"timeout={display.timeout_secs:.1f}s, VCOM {display.vcom:.2f}, "
+                f"data={display.spi_hz} Hz, VCOM {display.vcom:.2f}, "
                 f"reset={display.reset_pin}, ready={display.ready_pin}."
             )
             if display.last_error:
@@ -127,8 +126,7 @@ def test_epaper(text: str, clear_after: bool, render_strategy: str) -> int:
             f"firmware={summary['firmware_version']}, "
             f"lut={summary['lut_version']}, "
             f"SPI {summary['spi_bus']}.{summary['spi_device']}, "
-            f"cmd={summary['cmd_hz']} Hz, data={summary['spi_hz']} Hz, "
-            f"timeout={summary['timeout_secs']:.1f}s, VCOM {summary['vcom']:.2f}, "
+            f"data={summary['spi_hz']} Hz, VCOM {summary['vcom']:.2f}, "
             f"reset={summary['reset_pin']}, ready={summary['ready_pin']}"
         )
 

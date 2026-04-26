@@ -9,7 +9,7 @@ Node target: Raspberry Pi Zero 2W
 
 import os
 import logging
-from PIL import Image, ImageDraw, ImageFont, ImageChops
+from PIL import Image, ImageDraw, ImageFont
 
 from clipboard.env import load_project_env
 
@@ -23,82 +23,8 @@ DEFAULT_VCOM = -2.06
 DEFAULT_SPI_BUS = 0
 DEFAULT_SPI_DEVICE = 0
 DEFAULT_SPI_HZ = 24_000_000
-DEFAULT_CMD_HZ = 1_000_000
-DEFAULT_TIMEOUT_SECS = 10.0
 DEFAULT_READY_PIN = 24
 DEFAULT_RESET_PIN = 17
-DEFAULT_TEXT_THRESHOLD = 192
-
-
-class _ConfiguredEPDDisplay:
-    """Small wrapper around IT8951 EPD with the AutoDisplay update logic."""
-
-    def __init__(self, epd, auto_display_cls, constants, rotate=None, mirror=False) -> None:
-        self.epd = epd
-        self._constants = constants
-        self._auto_display = auto_display_cls(epd.width, epd.height, rotate=rotate, mirror=mirror)
-
-    @property
-    def frame_buf(self):
-        return self._auto_display.frame_buf
-
-    @property
-    def width(self) -> int:
-        return self._auto_display.width
-
-    @property
-    def height(self) -> int:
-        return self._auto_display.height
-
-    def draw_full(self, mode) -> None:
-        frame = self._auto_display._get_frame_buf()
-        self._update(frame.tobytes(), (0, 0), self._auto_display.display_dims, mode)
-        self._auto_display.prev_frame = frame
-
-    def draw_partial(self, mode) -> None:
-        """Update only the changed region between previous and current frame buffers."""
-        if self._auto_display.prev_frame is None:
-            self.draw_full(mode)
-            return
-
-        frame = self._auto_display._get_frame_buf()
-        diff_box = ImageChops.difference(self._auto_display.prev_frame, frame).getbbox()
-        if diff_box is None:
-            self._auto_display.prev_frame = frame
-            return
-
-        # DU-family modes require 8-pixel alignment for controller packing.
-        low_bpp_modes = {
-            self._constants.DisplayModes.INIT,
-            self._constants.DisplayModes.DU,
-            self._constants.DisplayModes.DU4,
-            self._constants.DisplayModes.A2,
-        }
-        round_to = 8 if mode in low_bpp_modes else 4
-        minx, miny, maxx, maxy = diff_box
-        minx -= minx % round_to
-        maxx += round_to - 1 - (maxx - 1) % round_to
-        miny -= miny % round_to
-        maxy += round_to - 1 - (maxy - 1) % round_to
-        diff_box = (minx, miny, maxx, maxy)
-
-        buf = frame.crop(diff_box)
-        xy = (diff_box[0], diff_box[1])
-        dims = (diff_box[2] - diff_box[0], diff_box[3] - diff_box[1])
-        self._update(buf.tobytes(), xy, dims, mode)
-        self._auto_display.prev_frame = frame
-
-    def clear(self) -> None:
-        self.frame_buf.paste(0xFF, box=(0, 0, self.width, self.height))
-        self.draw_full(self._constants.DisplayModes.INIT)
-
-    def _update(self, data, xy, dims, mode, pixel_format=None) -> None:
-        if pixel_format is None:
-            pixel_format = self._constants.PixelModes.M_4BPP
-
-        self.epd.wait_display_ready()
-        self.epd.load_img_area(data, xy=xy, dims=dims, pixel_format=pixel_format)
-        self.epd.display_area(xy, dims, mode)
 
 
 class ClipboardDisplay:
@@ -118,40 +44,33 @@ class ClipboardDisplay:
         self._spi_bus = int(os.getenv("EPAPER_SPI_BUS", str(DEFAULT_SPI_BUS)))
         self._spi_device = int(os.getenv("EPAPER_SPI_DEVICE", str(DEFAULT_SPI_DEVICE)))
         self._spi_hz = int(os.getenv("EPAPER_SPI_HZ", str(DEFAULT_SPI_HZ)))
-        self._cmd_hz = int(os.getenv("EPAPER_CMD_HZ", str(DEFAULT_CMD_HZ)))
-        self._timeout_secs = float(os.getenv("EPAPER_TIMEOUT_SECS", str(DEFAULT_TIMEOUT_SECS)))
         self._ready_pin = int(os.getenv("EPAPER_READY_PIN", str(DEFAULT_READY_PIN)))
         self._reset_pin = int(os.getenv("EPAPER_RESET_PIN", str(DEFAULT_RESET_PIN)))
-        self._text_threshold = int(os.getenv("EPAPER_TEXT_THRESHOLD", str(DEFAULT_TEXT_THRESHOLD)))
         self._last_error: str | None = None
 
-        # Import here so the module can be imported on non-Pi systems without crashing
+        # Import here so the module can be imported on non-Pi systems without crashing.
+        # Use AutoEPDDisplay directly — the same class picker uses — rather than wrapping
+        # the abstract AutoDisplay base class, which has no hardware update implementation.
         try:
-            from IT8951.display import AutoDisplay
-            from IT8951.interface import EPD
+            from IT8951.display import AutoEPDDisplay
             from IT8951 import constants
 
             constants.Pins.HRDY = self._ready_pin
             constants.Pins.RESET = self._reset_pin
 
-            epd = EPD(
+            self._display = AutoEPDDisplay(
                 vcom=self._vcom,
                 bus=self._spi_bus,
                 device=self._spi_device,
-                cmd_hz=self._cmd_hz,
-                data_hz=self._spi_hz,
-                timeout_secs=self._timeout_secs,
+                spi_hz=self._spi_hz,
             )
-            self._display = _ConfiguredEPDDisplay(epd, AutoDisplay, constants, rotate=None, mirror=False)
             self._constants = constants
             log.info(
-                "ClipboardDisplay initialized — SPI %d.%d cmd=%d data=%d Hz, VCOM %.2f, timeout %.1fs, pins reset=%d ready=%d",
+                "ClipboardDisplay initialized — SPI %d.%d data=%d Hz, VCOM %.2f, pins reset=%d ready=%d",
                 self._spi_bus,
                 self._spi_device,
-                self._cmd_hz,
                 self._spi_hz,
                 self._vcom,
-                self._timeout_secs,
                 self._reset_pin,
                 self._ready_pin,
             )
@@ -165,7 +84,7 @@ class ClipboardDisplay:
         """Render current knob/button state to the ePaper display."""
         image = self._render(state)
         if self._display is not None:
-            self._display_image_full(image, strategy="text")
+            self._blit(image)
 
     @property
     def is_available(self) -> bool:
@@ -192,14 +111,6 @@ class ClipboardDisplay:
         return self._spi_hz
 
     @property
-    def cmd_hz(self) -> int:
-        return self._cmd_hz
-
-    @property
-    def timeout_secs(self) -> float:
-        return self._timeout_secs
-
-    @property
     def ready_pin(self) -> int:
         return self._ready_pin
 
@@ -218,8 +129,6 @@ class ClipboardDisplay:
                 "spi_bus": self._spi_bus,
                 "spi_device": self._spi_device,
                 "spi_hz": self._spi_hz,
-                "cmd_hz": self._cmd_hz,
-                "timeout_secs": self._timeout_secs,
                 "ready_pin": self._ready_pin,
                 "reset_pin": self._reset_pin,
             }
@@ -234,8 +143,6 @@ class ClipboardDisplay:
             "spi_bus": self._spi_bus,
             "spi_device": self._spi_device,
             "spi_hz": self._spi_hz,
-            "cmd_hz": self._cmd_hz,
-            "timeout_secs": self._timeout_secs,
             "ready_pin": self._ready_pin,
             "reset_pin": self._reset_pin,
         }
@@ -246,118 +153,60 @@ class ClipboardDisplay:
             return
         self._display.clear()
 
+    def _blit(self, img: Image.Image) -> None:
+        """Paste img into the display frame buffer and trigger a GC16 full refresh.
+
+        This is the same pattern picker uses: paste prepared L-mode image into
+        AutoEPDDisplay.frame_buf then call draw_full(GC16).
+        """
+        prepared = img if img.mode == "L" else img.convert("L")
+        self._display.frame_buf.paste(prepared, [0, 0])
+        self._display.draw_full(self._constants.DisplayModes.GC16)
+
     def show_test_pattern(self, text: str = "CLANKER CLIPBOARD") -> None:
         """Render a simple full-screen test pattern for hardware bring-up."""
-        img = Image.new("L", (DISPLAY_WIDTH, DISPLAY_HEIGHT), 255)
-        draw = ImageDraw.Draw(img)
-
-        draw.rectangle([12, 12, DISPLAY_WIDTH - 12, DISPLAY_HEIGHT - 12], outline=0, width=6)
-        draw.line([80, 220, DISPLAY_WIDTH - 80, 220], fill=0, width=4)
-        draw.line([80, DISPLAY_HEIGHT - 220, DISPLAY_WIDTH - 80, DISPLAY_HEIGHT - 220], fill=0, width=4)
-        draw.rectangle([120, 300, 420, 600], outline=0, width=5)
-        draw.ellipse([DISPLAY_WIDTH - 420, 300, DISPLAY_WIDTH - 120, 600], outline=0, width=5)
-
-        font = self._load_font(72)
-        sub_font = self._load_font(42)
-
-        title_box = draw.textbbox((0, 0), text, font=font)
-        title_width = title_box[2] - title_box[0]
-        draw.text(((DISPLAY_WIDTH - title_width) / 2, 90), text, fill=0, font=font)
-        draw.text((160, 680), "IT8951 full refresh test", fill=0, font=sub_font)
-        draw.text((160, 760), f"VCOM {self._vcom:.2f}", fill=0, font=sub_font)
-
-        if self._display is not None:
-            self._display_image_full(img, strategy="text")
+        if self._display is None:
+            return
+        img = self._build_test_image(text)
+        self._blit(img)
 
     def show_test_pattern_with_strategy(self, text: str, strategy: str = "text") -> None:
-        """Render test pattern using a specific panel update strategy."""
-        img = Image.new("L", (DISPLAY_WIDTH, DISPLAY_HEIGHT), 255)
+        """Render test pattern — strategy parameter retained for CLI compatibility.
+
+        All strategies now use the same picker-proven GC16 path via _blit().
+        The strategy label is rendered in the image for visual confirmation.
+        """
+        if self._display is None:
+            return
+        img = self._build_test_image(text, label=f"strategy arg: {strategy} (GC16)")
+        self._blit(img)
+
+    def _build_test_image(self, text: str, label: str = "IT8951 GC16 full refresh") -> Image.Image:
+        """Build the test pattern PIL image."""
+        # Use actual panel dimensions so the image exactly fills the frame buffer.
+        w = self._display.width
+        h = self._display.height
+        img = Image.new("L", (w, h), 255)
         draw = ImageDraw.Draw(img)
 
-        draw.rectangle([12, 12, DISPLAY_WIDTH - 12, DISPLAY_HEIGHT - 12], outline=0, width=6)
-        draw.line([80, 220, DISPLAY_WIDTH - 80, 220], fill=0, width=4)
-        draw.line([80, DISPLAY_HEIGHT - 220, DISPLAY_WIDTH - 80, DISPLAY_HEIGHT - 220], fill=0, width=4)
+        draw.rectangle([12, 12, w - 12, h - 12], outline=0, width=6)
+        draw.line([80, 220, w - 80, 220], fill=0, width=4)
+        draw.line([80, h - 220, w - 80, h - 220], fill=0, width=4)
+        draw.rectangle([120, 300, 420, 600], outline=0, width=5)
+        draw.ellipse([w - 420, 300, w - 120, 600], outline=0, width=5)
 
         font = self._load_font(72)
         sub_font = self._load_font(42)
 
         title_box = draw.textbbox((0, 0), text, font=font)
         title_width = title_box[2] - title_box[0]
-        draw.text(((DISPLAY_WIDTH - title_width) / 2, 90), text, fill=0, font=font)
-        draw.text((160, 680), f"Strategy: {strategy}", fill=0, font=sub_font)
-        draw.text((160, 760), f"VCOM {self._vcom:.2f} threshold {self._text_threshold}", fill=0, font=sub_font)
+        draw.text(((w - title_width) / 2, 90), text, fill=0, font=font)
+        draw.text((160, 680), label, fill=0, font=sub_font)
+        draw.text((160, 760), f"VCOM {self._vcom:.2f}  {w}x{h}", fill=0, font=sub_font)
 
-        if self._display is not None:
-            self._display_image_full(img, strategy=strategy)
+        return img
 
-    def _display_image_full(self, img: Image.Image, strategy: str = "text") -> None:
-        """Prepare and send a full-frame image with strategy-specific waveform control."""
-        if strategy == "image":
-            prepared = self._prepare_image_grayscale(img)
-        else:
-            prepared = self._prepare_image_text(img)
-
-        self._display.frame_buf.paste(prepared, [0, 0])
-
-        if strategy == "fast":
-            du_mode = getattr(self._constants.DisplayModes, "DU", None)
-            if du_mode is None:
-                du_mode = getattr(self._constants.DisplayModes, "GL16")
-                self._display.draw_full(du_mode)
-            else:
-                self._display.draw_partial(du_mode)
-            return
-
-        if strategy == "image":
-            gc16_mode = getattr(self._constants.DisplayModes, "GC16", None)
-            if gc16_mode is None:
-                gc16_mode = getattr(self._constants.DisplayModes, "GL16")
-            self._display.draw_full(gc16_mode)
-            return
-
-        # Text/menu strategy modeled after picker behavior: DU partial updates.
-        du_mode = getattr(self._constants.DisplayModes, "DU", None)
-        if du_mode is None:
-            gl16_mode = getattr(self._constants.DisplayModes, "GL16", None)
-            if gl16_mode is None:
-                gl16_mode = getattr(self._constants.DisplayModes, "GC16")
-            self._display.draw_full(gl16_mode)
-            return
-
-        self._display.draw_partial(du_mode)
-
-    def _prepare_image_text(self, img: Image.Image) -> Image.Image:
-        """Prepare crisp black text over white for menu-like content."""
-        if img.mode != "L":
-            img = img.convert("L")
-
-        resized = img.copy()
-        resized.thumbnail((DISPLAY_WIDTH, DISPLAY_HEIGHT), Image.LANCZOS)
-
-        prepared = Image.new("L", (DISPLAY_WIDTH, DISPLAY_HEIGHT), 0xFF)
-        x = (DISPLAY_WIDTH - resized.width) // 2
-        y = (DISPLAY_HEIGHT - resized.height) // 2
-        prepared.paste(resized, (x, y))
-
-        # Binarize for solid black text on a clean white background.
-        threshold = max(0, min(255, int(self._text_threshold)))
-        return prepared.point(lambda px: 0 if px < threshold else 255, mode="L")
-
-    def _prepare_image_grayscale(self, img: Image.Image) -> Image.Image:
-        """Prepare grayscale content for GC16-style full updates."""
-        if img.mode != "L":
-            img = img.convert("L")
-
-        resized = img.copy()
-        resized.thumbnail((DISPLAY_WIDTH, DISPLAY_HEIGHT), Image.LANCZOS)
-
-        prepared = Image.new("L", (DISPLAY_WIDTH, DISPLAY_HEIGHT), 0xFF)
-        x = (DISPLAY_WIDTH - resized.width) // 2
-        y = (DISPLAY_HEIGHT - resized.height) // 2
-        prepared.paste(resized, (x, y))
-        return prepared
-
-    def _render(self, state: dict) -> Image.Image:
+    def _render(self, state: dict) -> Image.Image:  # noqa: E303
         """Build a PIL image representing the current state."""
         img = Image.new("L", (DISPLAY_WIDTH, DISPLAY_HEIGHT), 255)
         draw = ImageDraw.Draw(img)
