@@ -9,7 +9,7 @@ Node target: Raspberry Pi Zero 2W
 
 import os
 import logging
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageChops
 
 from clipboard.env import load_project_env
 
@@ -53,6 +53,39 @@ class _ConfiguredEPDDisplay:
     def draw_full(self, mode) -> None:
         frame = self._auto_display._get_frame_buf()
         self._update(frame.tobytes(), (0, 0), self._auto_display.display_dims, mode)
+        self._auto_display.prev_frame = frame
+
+    def draw_partial(self, mode) -> None:
+        """Update only the changed region between previous and current frame buffers."""
+        if self._auto_display.prev_frame is None:
+            self.draw_full(mode)
+            return
+
+        frame = self._auto_display._get_frame_buf()
+        diff_box = ImageChops.difference(self._auto_display.prev_frame, frame).getbbox()
+        if diff_box is None:
+            self._auto_display.prev_frame = frame
+            return
+
+        # DU-family modes require 8-pixel alignment for controller packing.
+        low_bpp_modes = {
+            self._constants.DisplayModes.INIT,
+            self._constants.DisplayModes.DU,
+            self._constants.DisplayModes.DU4,
+            self._constants.DisplayModes.A2,
+        }
+        round_to = 8 if mode in low_bpp_modes else 4
+        minx, miny, maxx, maxy = diff_box
+        minx -= minx % round_to
+        maxx += round_to - 1 - (maxx - 1) % round_to
+        miny -= miny % round_to
+        maxy += round_to - 1 - (maxy - 1) % round_to
+        diff_box = (minx, miny, maxx, maxy)
+
+        buf = frame.crop(diff_box)
+        xy = (diff_box[0], diff_box[1])
+        dims = (diff_box[2] - diff_box[0], diff_box[3] - diff_box[1])
+        self._update(buf.tobytes(), xy, dims, mode)
         self._auto_display.prev_frame = frame
 
     def clear(self) -> None:
@@ -270,7 +303,9 @@ class ClipboardDisplay:
             du_mode = getattr(self._constants.DisplayModes, "DU", None)
             if du_mode is None:
                 du_mode = getattr(self._constants.DisplayModes, "GL16")
-            self._display.draw_full(du_mode)
+                self._display.draw_full(du_mode)
+            else:
+                self._display.draw_partial(du_mode)
             return
 
         if strategy == "image":
@@ -280,15 +315,16 @@ class ClipboardDisplay:
             self._display.draw_full(gc16_mode)
             return
 
-        # Text/menu strategy modeled after picker behavior: stable full pass then DU polish.
-        gl16_mode = getattr(self._constants.DisplayModes, "GL16", None)
-        if gl16_mode is None:
-            gl16_mode = getattr(self._constants.DisplayModes, "GC16")
-        self._display.draw_full(gl16_mode)
-
+        # Text/menu strategy modeled after picker behavior: DU partial updates.
         du_mode = getattr(self._constants.DisplayModes, "DU", None)
-        if du_mode is not None:
-            self._display.draw_full(du_mode)
+        if du_mode is None:
+            gl16_mode = getattr(self._constants.DisplayModes, "GL16", None)
+            if gl16_mode is None:
+                gl16_mode = getattr(self._constants.DisplayModes, "GC16")
+            self._display.draw_full(gl16_mode)
+            return
+
+        self._display.draw_partial(du_mode)
 
     def _prepare_image_text(self, img: Image.Image) -> Image.Image:
         """Prepare crisp black text over white for menu-like content."""
