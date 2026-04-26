@@ -27,6 +27,7 @@ DEFAULT_CMD_HZ = 1_000_000
 DEFAULT_TIMEOUT_SECS = 10.0
 DEFAULT_READY_PIN = 24
 DEFAULT_RESET_PIN = 17
+DEFAULT_TEXT_THRESHOLD = 192
 
 
 class _ConfiguredEPDDisplay:
@@ -88,6 +89,7 @@ class ClipboardDisplay:
         self._timeout_secs = float(os.getenv("EPAPER_TIMEOUT_SECS", str(DEFAULT_TIMEOUT_SECS)))
         self._ready_pin = int(os.getenv("EPAPER_READY_PIN", str(DEFAULT_READY_PIN)))
         self._reset_pin = int(os.getenv("EPAPER_RESET_PIN", str(DEFAULT_RESET_PIN)))
+        self._text_threshold = int(os.getenv("EPAPER_TEXT_THRESHOLD", str(DEFAULT_TEXT_THRESHOLD)))
         self._last_error: str | None = None
 
         # Import here so the module can be imported on non-Pi systems without crashing
@@ -130,7 +132,7 @@ class ClipboardDisplay:
         """Render current knob/button state to the ePaper display."""
         image = self._render(state)
         if self._display is not None:
-            self._display_image_full(image)
+            self._display_image_full(image, strategy="text")
 
     @property
     def is_available(self) -> bool:
@@ -232,20 +234,64 @@ class ClipboardDisplay:
         draw.text((160, 760), f"VCOM {self._vcom:.2f}", fill=0, font=sub_font)
 
         if self._display is not None:
-            self._display_image_full(img)
+            self._display_image_full(img, strategy="text")
 
-    def _display_image_full(self, img: Image.Image) -> None:
-        """Prepare and send a full-frame image using a stable grayscale mode."""
-        prepared = self._prepare_image(img)
+    def show_test_pattern_with_strategy(self, text: str, strategy: str = "text") -> None:
+        """Render test pattern using a specific panel update strategy."""
+        img = Image.new("L", (DISPLAY_WIDTH, DISPLAY_HEIGHT), 255)
+        draw = ImageDraw.Draw(img)
+
+        draw.rectangle([12, 12, DISPLAY_WIDTH - 12, DISPLAY_HEIGHT - 12], outline=0, width=6)
+        draw.line([80, 220, DISPLAY_WIDTH - 80, 220], fill=0, width=4)
+        draw.line([80, DISPLAY_HEIGHT - 220, DISPLAY_WIDTH - 80, DISPLAY_HEIGHT - 220], fill=0, width=4)
+
+        font = self._load_font(72)
+        sub_font = self._load_font(42)
+
+        title_box = draw.textbbox((0, 0), text, font=font)
+        title_width = title_box[2] - title_box[0]
+        draw.text(((DISPLAY_WIDTH - title_width) / 2, 90), text, fill=0, font=font)
+        draw.text((160, 680), f"Strategy: {strategy}", fill=0, font=sub_font)
+        draw.text((160, 760), f"VCOM {self._vcom:.2f} threshold {self._text_threshold}", fill=0, font=sub_font)
+
+        if self._display is not None:
+            self._display_image_full(img, strategy=strategy)
+
+    def _display_image_full(self, img: Image.Image, strategy: str = "text") -> None:
+        """Prepare and send a full-frame image with strategy-specific waveform control."""
+        if strategy == "image":
+            prepared = self._prepare_image_grayscale(img)
+        else:
+            prepared = self._prepare_image_text(img)
+
         self._display.frame_buf.paste(prepared, [0, 0])
 
-        full_mode = getattr(self._constants.DisplayModes, "GC16", None)
-        if full_mode is None:
-            full_mode = getattr(self._constants.DisplayModes, "GL16")
-        self._display.draw_full(full_mode)
+        if strategy == "fast":
+            du_mode = getattr(self._constants.DisplayModes, "DU", None)
+            if du_mode is None:
+                du_mode = getattr(self._constants.DisplayModes, "GL16")
+            self._display.draw_full(du_mode)
+            return
 
-    def _prepare_image(self, img: Image.Image) -> Image.Image:
-        """Match picker image prep: grayscale canvas + 4bpp-style quantization."""
+        if strategy == "image":
+            gc16_mode = getattr(self._constants.DisplayModes, "GC16", None)
+            if gc16_mode is None:
+                gc16_mode = getattr(self._constants.DisplayModes, "GL16")
+            self._display.draw_full(gc16_mode)
+            return
+
+        # Text/menu strategy modeled after picker behavior: stable full pass then DU polish.
+        gl16_mode = getattr(self._constants.DisplayModes, "GL16", None)
+        if gl16_mode is None:
+            gl16_mode = getattr(self._constants.DisplayModes, "GC16")
+        self._display.draw_full(gl16_mode)
+
+        du_mode = getattr(self._constants.DisplayModes, "DU", None)
+        if du_mode is not None:
+            self._display.draw_full(du_mode)
+
+    def _prepare_image_text(self, img: Image.Image) -> Image.Image:
+        """Prepare crisp black text over white for menu-like content."""
         if img.mode != "L":
             img = img.convert("L")
 
@@ -257,12 +303,23 @@ class ClipboardDisplay:
         y = (DISPLAY_HEIGHT - resized.height) // 2
         prepared.paste(resized, (x, y))
 
-        try:
-            quantized = prepared.quantize(colors=16, method=Image.FLOYDSTEINBERG)
-        except (AttributeError, ValueError):
-            quantized = prepared.quantize(colors=16)
+        # Binarize for solid black text on a clean white background.
+        threshold = max(0, min(255, int(self._text_threshold)))
+        return prepared.point(lambda px: 0 if px < threshold else 255, mode="L")
 
-        return quantized.convert("L")
+    def _prepare_image_grayscale(self, img: Image.Image) -> Image.Image:
+        """Prepare grayscale content for GC16-style full updates."""
+        if img.mode != "L":
+            img = img.convert("L")
+
+        resized = img.copy()
+        resized.thumbnail((DISPLAY_WIDTH, DISPLAY_HEIGHT), Image.LANCZOS)
+
+        prepared = Image.new("L", (DISPLAY_WIDTH, DISPLAY_HEIGHT), 0xFF)
+        x = (DISPLAY_WIDTH - resized.width) // 2
+        y = (DISPLAY_HEIGHT - resized.height) // 2
+        prepared.paste(resized, (x, y))
+        return prepared
 
     def _render(self, state: dict) -> Image.Image:
         """Build a PIL image representing the current state."""

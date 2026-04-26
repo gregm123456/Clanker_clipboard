@@ -99,7 +99,7 @@ def probe_adc(samples: int, interval: float) -> int:
     return 0
 
 
-def test_epaper(text: str, clear_after: bool) -> int:
+def test_epaper(text: str, clear_after: bool, render_strategy: str) -> int:
     """Attempt a simple full-screen ePaper draw."""
     env_path = load_project_env()
     if env_path is not None:
@@ -135,7 +135,8 @@ def test_epaper(text: str, clear_after: bool) -> int:
         print("Clearing ePaper display")
         display.clear()
         print(f"Drawing test pattern: {text}")
-        display.show_test_pattern(text)
+        print(f"Render strategy: {render_strategy}")
+        display.show_test_pattern_with_strategy(text=text, strategy=render_strategy)
         if clear_after:
             print("Clearing ePaper display after test")
             display.clear()
@@ -217,6 +218,12 @@ def main() -> int:
     epaper_parser = subparsers.add_parser("test-epaper", help="Draw a simple full-screen test pattern")
     epaper_parser.add_argument("--text", default="CLANKER CLIPBOARD", help="Text to render")
     epaper_parser.add_argument("--clear-after", action="store_true", help="Clear the display after drawing")
+    epaper_parser.add_argument(
+        "--render-strategy",
+        choices=("text", "image", "fast"),
+        default="text",
+        help="Panel update strategy: text=GL16+DU, image=GC16, fast=DU",
+    )
 
     ready_parser = subparsers.add_parser("probe-epaper-ready", help="Sample the IT8951 HRDY pin and optionally pulse reset")
     ready_parser.add_argument("--duration", type=float, default=12.0, help="Seconds to sample HRDY after reset")
@@ -232,7 +239,11 @@ def main() -> int:
     if args.command == "probe-adc":
         return probe_adc(samples=args.samples, interval=args.interval)
     if args.command == "test-epaper":
-        return test_epaper(text=args.text, clear_after=args.clear_after)
+        return test_epaper(
+            text=args.text,
+            clear_after=args.clear_after,
+            render_strategy=args.render_strategy,
+        )
     if args.command == "probe-epaper-ready":
         return probe_epaper_ready(
             duration=args.duration,
