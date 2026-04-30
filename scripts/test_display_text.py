@@ -30,7 +30,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--text", default="CLANKER TEST", help="Main text to render")
     parser.add_argument("--image-delay", type=float, default=1.0, help="Seconds to wait after image-mode render")
     parser.add_argument("--text-delay", type=float, default=0.5, help="Seconds to wait after text-mode render")
-    parser.add_argument("--skip-fast", action="store_true", help="Skip text-mode fast refresh pass")
+    parser.add_argument("--skip-fast", action="store_true", default=True, help="Skip DU fast pass (default on — DU corrupts without prior state)")
+    parser.add_argument("--with-fast", dest="skip_fast", action="store_false", help="Enable the DU fast second pass")
     parser.add_argument("--clear-after", action="store_true", help="Clear display after test")
     return parser.parse_args()
 
@@ -45,7 +46,7 @@ def main() -> int:
         return 1
 
     print("Display initialized")
-    print(f"Rendering image-mode test: {args.text}")
+    print(f"Rendering full-refresh test: {args.text}")
     display.show_test_pattern_with_strategy(text=args.text, strategy="image")
     time.sleep(max(0.0, args.image_delay))
 
