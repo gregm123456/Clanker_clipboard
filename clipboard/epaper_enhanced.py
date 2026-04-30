@@ -69,6 +69,7 @@ class WaveshareDisplay:
         self.width = width
         self.height = height
         self.virtual = virtual
+        self._needs_init = True
         
         if update_waveshare_available:
             try:
@@ -88,6 +89,7 @@ class WaveshareDisplay:
         if update_waveshare_available:
             try:
                 blank_screen(device=self.device, virtual=self.virtual)
+                self._needs_init = False
             except Exception as e:
                 logger.error(f"Clear failed: {e}")
     
@@ -102,6 +104,11 @@ class WaveshareDisplay:
             img_path = temp_path
         
         try:
+            if mode in ('auto', 'full', 'full_quality') and self._needs_init:
+                logger.info("Priming panel with INIT clear before first full refresh")
+                self.device.clear()
+                self._needs_init = False
+
             logger.info(f"Displaying image with waveshare (mode: {mode})")
             regions = display_image(
                 img_path, 
