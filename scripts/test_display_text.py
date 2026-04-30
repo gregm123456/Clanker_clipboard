@@ -14,6 +14,11 @@ import argparse
 import logging
 import sys
 import time
+from pathlib import Path
+
+# Ensure project root is on sys.path so 'clipboard' package is importable
+# when running this script directly: python scripts/test_display_text.py
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from clipboard.display import ClipboardDisplay
 
