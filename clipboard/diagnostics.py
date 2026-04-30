@@ -105,6 +105,10 @@ def test_epaper(text: str, clear_after: bool, render_strategy: str) -> int:
     if env_path is not None:
         print(f"Loaded environment from {env_path}")
 
+    # Show exactly which local files Python imported to avoid package shadowing confusion.
+    print(f"clipboard.diagnostics path: {__file__}")
+    print(f"ClipboardDisplay path: {ClipboardDisplay.__module__} -> {__import__(ClipboardDisplay.__module__, fromlist=['_']).__file__}")
+
     display = ClipboardDisplay()
     try:
         if not display.is_available:
@@ -220,7 +224,7 @@ def main() -> int:
         "--render-strategy",
         choices=("text", "image", "fast"),
         default="text",
-        help="Panel update strategy: text=GL16+DU, image=GC16, fast=DU",
+        help="Panel update strategy: text=DU partial (responsive), image=GC16 full (quality), fast=DU partial (lightning)",
     )
 
     ready_parser = subparsers.add_parser("probe-epaper-ready", help="Sample the IT8951 HRDY pin and optionally pulse reset")
