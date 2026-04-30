@@ -43,19 +43,9 @@ except ImportError as e:
     logger.info(f"✗ update_waveshare not available: {e}")
 
 # Fallback to IT8951 if update_waveshare fails
+# Do NOT add local IT8951/src to sys.path — venv-installed IT8951 1.0.0 has compiled .so extensions
 if not update_waveshare_available:
     try:
-        # Try direct IT8951 import - look for IT8951-ePaper/Raspberry/lib
-        it8951_paths = [
-            project_root / 'IT8951' / 'src',  # Local IT8951 source
-            project_root / 'IT8951-ePaper' / 'Raspberry' / 'lib',  # Waveshare IT8951 package
-        ]
-        
-        for it8951_src in it8951_paths:
-            if it8951_src.exists():
-                sys.path.insert(0, str(it8951_src))
-                logger.debug(f"Added IT8951 path: {it8951_src}")
-        
         from IT8951.display import AutoEPDDisplay, VirtualEPDDisplay
         from IT8951.constants import DisplayModes
         IT8951_AVAILABLE = True
