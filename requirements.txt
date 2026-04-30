@@ -1,7 +1,7 @@
 # Zero 2W — keep lean, no large ML frameworks
 spidev>=3.5
 RPi.GPIO>=0.7.1
-Pillow>=9.0.0
+Pillow>=9.0.0,<11
 # IT8951 ePaper driver (install from local driver or pip-compatible fork)
 # IT8951
 

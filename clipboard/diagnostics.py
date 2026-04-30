@@ -108,6 +108,13 @@ def test_epaper(text: str, clear_after: bool, render_strategy: str) -> int:
     # Show exactly which local files Python imported to avoid package shadowing confusion.
     print(f"clipboard.diagnostics path: {__file__}")
     print(f"ClipboardDisplay path: {ClipboardDisplay.__module__} -> {__import__(ClipboardDisplay.__module__, fromlist=['_']).__file__}")
+    try:
+        import sys
+        from PIL import __version__ as pillow_version
+        import IT8951
+        print(f"Runtime: python={sys.version.split()[0]}, pillow={pillow_version}, IT8951={getattr(IT8951, '__version__', 'unknown')}")
+    except Exception as exc:
+        print(f"Runtime version probe failed: {exc}")
 
     display = ClipboardDisplay()
     try:

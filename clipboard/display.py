@@ -188,7 +188,13 @@ class ClipboardDisplay:
         
         # Match picker's known-good refresh path.
         if mode in ("text", "fast"):
-            self._display.draw_partial(self._constants.DisplayModes.DU)
+            try:
+                self._display.draw_partial(self._constants.DisplayModes.DU)
+            except Exception as exc:
+                # IT8951 partial path relies on Pillow internals that can break on newer builds.
+                # Fallback to a full DU pass so text updates still render instead of crashing.
+                log.warning("draw_partial(DU) failed, falling back to draw_full(DU): %s", exc)
+                self._display.draw_full(self._constants.DisplayModes.DU)
         else:
             self._display.draw_full(self._constants.DisplayModes.GC16)
 
