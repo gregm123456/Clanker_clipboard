@@ -36,6 +36,7 @@ try:
     
     from update_waveshare.core import display_image, blank_screen
     from update_waveshare._device import create_device as create_waveshare_device
+    from IT8951.constants import DisplayModes
     update_waveshare_available = True
     DISPLAY_MODE = "update_waveshare"
     logger.info("✓ update_waveshare available - using existing drivers")
@@ -96,12 +97,9 @@ class WaveshareDisplay:
     def display_image(self, image: Union[Image.Image, str], mode='auto'):
         """Display an image."""
         if isinstance(image, str):
-            img_path = image
+            img = Image.open(image)
         else:
-            # Save PIL image to temporary file
-            temp_path = "/tmp/clipboard_temp_display.png"
-            image.save(temp_path)
-            img_path = temp_path
+            img = image.copy()
         
         try:
             if mode in ('auto', 'full', 'full_quality') and self._needs_init:
@@ -109,18 +107,33 @@ class WaveshareDisplay:
                 self.device.clear()
                 self._needs_init = False
 
-            logger.info(f"Displaying image with waveshare (mode: {mode})")
-            regions = display_image(
-                img_path, 
-                device=self.device, 
-                virtual=self.virtual, 
-                mode=mode,
-                vcom=-2.06  # Use consistent VCOM
-            )
+            prepared = self._prepare_image(img)
+            self.device.frame_buf.paste(prepared)
+
+            logger.info(f"Displaying image with direct waveshare path (mode: {mode})")
+            if mode == 'FAST':
+                self.device.draw_full(DisplayModes.DU)
+            else:
+                self.device.draw_full(DisplayModes.GC16)
+
+            regions = [(0, 0, self.width, self.height)]
             logger.info(f"Display update completed, regions: {regions}")
         except Exception as e:
             logger.error(f"Display update failed: {e}")
             raise
+
+    def _prepare_image(self, img: Image.Image) -> Image.Image:
+        """Prepare image for full-screen display."""
+        if img.mode != 'L':
+            img = img.convert('L')
+
+        img.thumbnail((self.width, self.height), Image.LANCZOS)
+
+        prepared = Image.new('L', (self.width, self.height), 0xFF)
+        x = (self.width - img.width) // 2
+        y = (self.height - img.height) // 2
+        prepared.paste(img, (x, y))
+        return prepared
     
     def close(self):
         """Close display connection."""
