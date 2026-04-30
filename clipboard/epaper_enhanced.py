@@ -34,9 +34,9 @@ try:
     if str(project_root) not in sys.path:
         sys.path.insert(0, str(project_root))
     
-    from update_waveshare.core import display_image, blank_screen
+    from update_waveshare.core import blank_screen
     from update_waveshare._device import create_device as create_waveshare_device
-    from IT8951.constants import DisplayModes
+    from IT8951.constants import DisplayModes, PixelModes
     update_waveshare_available = True
     DISPLAY_MODE = "update_waveshare"
     logger.info("✓ update_waveshare available - using existing drivers")
@@ -114,7 +114,15 @@ class WaveshareDisplay:
             if mode == 'FAST':
                 self.device.draw_full(DisplayModes.DU)
             else:
-                self.device.draw_full(DisplayModes.GC16)
+                frame = self.device._get_frame_buf()
+                self.device.update(
+                    frame.tobytes(),
+                    (0, 0),
+                    self.device.display_dims,
+                    DisplayModes.GC16,
+                    pixel_format=PixelModes.M_8BPP,
+                )
+                self.device.prev_frame = frame
 
             regions = [(0, 0, self.width, self.height)]
             logger.info(f"Display update completed, regions: {regions}")
