@@ -157,20 +157,23 @@ class ClipboardDisplay:
         img = Image.new("L", (w, h), 255)
         draw = ImageDraw.Draw(img)
 
-        draw.rectangle([12, 12, w - 12, h - 12], outline=0, width=6)
-        draw.line([80, 220, w - 80, 220], fill=0, width=4)
-        draw.line([80, h - 220, w - 80, h - 220], fill=0, width=4)
-        draw.rectangle([120, 300, 420, 600], outline=0, width=5)
-        draw.ellipse([w - 420, 300, w - 120, 600], outline=0, width=5)
+        draw.rectangle([0, 0, w, 180], fill=0)
+        draw.rectangle([0, h - 180, w, h], fill=0)
+        draw.rectangle([24, 24, w - 24, h - 24], outline=0, width=8)
+        draw.rectangle([80, 260, 500, 760], fill=0)
+        draw.rectangle([w - 500, 260, w - 80, 760], outline=0, width=20)
+        draw.line([560, 260, 900, 760], fill=0, width=24)
+        draw.line([900, 260, 560, 760], fill=0, width=24)
 
-        font = self._load_font(72)
-        sub_font = self._load_font(42)
+        font = self._load_font(120)
+        sub_font = self._load_font(72)
 
         title_box = draw.textbbox((0, 0), text, font=font)
         title_width = title_box[2] - title_box[0]
-        draw.text(((w - title_width) / 2, 90), text, fill=0, font=font)
-        draw.text((160, 680), label, fill=0, font=sub_font)
-        draw.text((160, 760), f"VCOM {self._vcom:.2f}  {w}x{h}", fill=0, font=sub_font)
+        draw.text(((w - title_width) / 2, 24), text, fill=255, font=font)
+        draw.text((560, 470), "TEST", fill=0, font=font)
+        draw.text((120, 820), label, fill=255, font=sub_font)
+        draw.text((120, 905), f"VCOM {self._vcom:.2f}  {w}x{h}", fill=255, font=sub_font)
 
         img.save("/tmp/clipboard_test_image.png")
         log.info(f"Test image saved to /tmp/clipboard_test_image.png (size={img.size})")
