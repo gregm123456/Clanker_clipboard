@@ -12,6 +12,7 @@ import logging
 from PIL import Image, ImageDraw, ImageFont
 
 from clipboard.env import load_project_env
+from clipboard.epaper_enhanced import create_display
 
 log = logging.getLogger(__name__)
 
@@ -20,11 +21,7 @@ DISPLAY_WIDTH = 1448
 DISPLAY_HEIGHT = 1072
 
 DEFAULT_VCOM = -2.06
-DEFAULT_SPI_BUS = 0
 DEFAULT_SPI_DEVICE = 0
-DEFAULT_SPI_HZ = 24_000_000
-DEFAULT_READY_PIN = 24
-DEFAULT_RESET_PIN = 17
 
 
 class ClipboardDisplay:
@@ -41,41 +38,30 @@ class ClipboardDisplay:
     def __init__(self) -> None:
         load_project_env()
         self._vcom = float(os.getenv("EPAPER_VCOM", str(DEFAULT_VCOM)))
-        self._spi_bus = int(os.getenv("EPAPER_SPI_BUS", str(DEFAULT_SPI_BUS)))
         self._spi_device = int(os.getenv("EPAPER_SPI_DEVICE", str(DEFAULT_SPI_DEVICE)))
-        self._spi_hz = int(os.getenv("EPAPER_SPI_HZ", str(DEFAULT_SPI_HZ)))
-        self._ready_pin = int(os.getenv("EPAPER_READY_PIN", str(DEFAULT_READY_PIN)))
-        self._reset_pin = int(os.getenv("EPAPER_RESET_PIN", str(DEFAULT_RESET_PIN)))
         self._last_error: str | None = None
 
-        # Import here so the module can be imported on non-Pi systems without crashing.
-        # Use AutoEPDDisplay directly — the same class picker uses — rather than wrapping
-        # the abstract AutoDisplay base class, which has no hardware update implementation.
         try:
-            from IT8951.display import AutoEPDDisplay
-            from IT8951 import constants
-
-            constants.Pins.HRDY = self._ready_pin
-            constants.Pins.RESET = self._reset_pin
-
-            # Match picker's known-good init path exactly.
-            # Picker relies on AutoEPDDisplay(vcom=...) defaults for SPI transport.
-            self._display = AutoEPDDisplay(vcom=self._vcom)
-            self._constants = constants
+            # Use picker's proven display driver factory
+            self._display = create_display(
+                spi_device=self._spi_device,
+                vcom=self._vcom,
+                width=DISPLAY_WIDTH,
+                height=DISPLAY_HEIGHT,
+                force_simulation=False,
+                prefer_enhanced=True,
+            )
             log.info(
-                "ClipboardDisplay initialized — SPI %d.%d data=%d Hz, VCOM %.2f, pins reset=%d ready=%d",
-                self._spi_bus,
-                self._spi_device,
-                self._spi_hz,
+                "ClipboardDisplay initialized — display %dx%d, VCOM %.2f, SPI device %d",
+                DISPLAY_WIDTH,
+                DISPLAY_HEIGHT,
                 self._vcom,
-                self._reset_pin,
-                self._ready_pin,
+                self._spi_device,
             )
         except Exception as exc:
             self._last_error = str(exc)
             log.warning("ePaper display unavailable: %s — running in headless mode", exc)
             self._display = None
-            self._constants = None
 
     def update(self, state: dict, mode: str = "image") -> None:
         """Render current knob/button state to the ePaper display.
@@ -90,7 +76,7 @@ class ClipboardDisplay:
 
     @property
     def is_available(self) -> bool:
-        return self._display is not None and self._constants is not None
+        return self._display is not None
 
     @property
     def last_error(self) -> str | None:
@@ -101,52 +87,23 @@ class ClipboardDisplay:
         return self._vcom
 
     @property
-    def spi_bus(self) -> int:
-        return self._spi_bus
-
-    @property
     def spi_device(self) -> int:
         return self._spi_device
-
-    @property
-    def spi_hz(self) -> int:
-        return self._spi_hz
-
-    @property
-    def ready_pin(self) -> int:
-        return self._ready_pin
-
-    @property
-    def reset_pin(self) -> int:
-        return self._reset_pin
 
     def device_summary(self) -> dict[str, str | int | float | None]:
         if self._display is None:
             return {
                 "width": None,
                 "height": None,
-                "firmware_version": None,
-                "lut_version": None,
                 "vcom": self._vcom,
-                "spi_bus": self._spi_bus,
                 "spi_device": self._spi_device,
-                "spi_hz": self._spi_hz,
-                "ready_pin": self._ready_pin,
-                "reset_pin": self._reset_pin,
             }
 
-        epd = self._display.epd
         return {
-            "width": epd.width,
-            "height": epd.height,
-            "firmware_version": getattr(epd, "firmware_version", None),
-            "lut_version": getattr(epd, "lut_version", None),
+            "width": getattr(self._display, "width", DISPLAY_WIDTH),
+            "height": getattr(self._display, "height", DISPLAY_HEIGHT),
             "vcom": self._vcom,
-            "spi_bus": self._spi_bus,
             "spi_device": self._spi_device,
-            "spi_hz": self._spi_hz,
-            "ready_pin": self._ready_pin,
-            "reset_pin": self._reset_pin,
         }
 
     def clear(self) -> None:
@@ -156,47 +113,24 @@ class ClipboardDisplay:
         self._display.clear()
 
     def _blit(self, img: Image.Image, mode: str = "image") -> None:
-        """Paste img into the display frame buffer and trigger a display refresh.
-
-        This is the same pattern picker uses: paste prepared L-mode image into
-        AutoEPDDisplay.frame_buf then call draw_full() or draw_partial() based on mode.
+        """Display the image using the configured refresh mode.
         
         Args:
-            img: PIL Image in any mode (will be converted to L if needed).
-            mode: Refresh strategy - 'text' or 'fast' use DU partial (responsive), 
-                  'image' uses GC16 full (best quality).
+            img: PIL Image in any mode.
+            mode: Refresh mode - 'text' or 'fast' for DU, 'image' for GC16.
         """
-        prepared = img if img.mode == "L" else img.convert("L")
-        
-        # Ensure image fits panel dimensions by scaling and centering if needed
-        panel_w = self._display.width
-        panel_h = self._display.height
-        log.debug(f"_blit: panel={panel_w}x{panel_h}, img in={prepared.size}")
-        if prepared.size != (panel_w, panel_h):
-            # Scale to fit using high-quality LANCZOS, then center on white background
-            prepared.thumbnail((panel_w, panel_h), Image.LANCZOS)
-            final = Image.new("L", (panel_w, panel_h), 0xFF)
-            x = (panel_w - prepared.width) // 2
-            y = (panel_h - prepared.height) // 2
-            final.paste(prepared, (x, y))
-            prepared = final
-        
-        log.debug(f"_blit: img final={prepared.size}, frame_buf={self._display.frame_buf.size}")
-        # Paste prepared image into frame buffer (no box parameter, just like picker does)
-        self._display.frame_buf.paste(prepared)
-        log.debug(f"_blit: paste complete, calling mode={mode}")
-        
-        # Match picker's known-good refresh path.
+        # Map Clanker modes to epaper_enhanced modes
         if mode in ("text", "fast"):
-            try:
-                self._display.draw_partial(self._constants.DisplayModes.DU)
-            except Exception as exc:
-                # IT8951 partial path relies on Pillow internals that can break on newer builds.
-                # Fallback to a full DU pass so text updates still render instead of crashing.
-                log.warning("draw_partial(DU) failed, falling back to draw_full(DU): %s", exc)
-                self._display.draw_full(self._constants.DisplayModes.DU)
+            display_mode = "FAST"  # DU partial for responsiveness
         else:
-            self._display.draw_full(self._constants.DisplayModes.GC16)
+            display_mode = "full"  # GC16 for image quality
+
+        try:
+            self._display.display_image(img, mode=display_mode)
+            log.debug(f"Display updated (mode={display_mode})")
+        except Exception as exc:
+            log.error(f"Display update failed: {exc}")
+            raise
 
     def show_test_pattern(self, text: str = "CLANKER CLIPBOARD") -> None:
         """Render a simple full-screen test pattern for hardware bring-up."""
@@ -216,12 +150,10 @@ class ClipboardDisplay:
         img = self._build_test_image(text, label=f"strategy: {strategy}")
         self._blit(img, mode=strategy)
 
-    def _build_test_image(self, text: str, label: str = "IT8951 GC16 full refresh") -> Image.Image:
+    def _build_test_image(self, text: str, label: str = "IT8951 test pattern") -> Image.Image:
         """Build the test pattern PIL image."""
-        # Use actual panel dimensions so the image exactly fills the frame buffer.
-        w = self._display.width
-        h = self._display.height
-        log.debug(f"_build_test_image: creating {w}x{h} image")
+        w = DISPLAY_WIDTH
+        h = DISPLAY_HEIGHT
         img = Image.new("L", (w, h), 255)
         draw = ImageDraw.Draw(img)
 
@@ -240,9 +172,8 @@ class ClipboardDisplay:
         draw.text((160, 680), label, fill=0, font=sub_font)
         draw.text((160, 760), f"VCOM {self._vcom:.2f}  {w}x{h}", fill=0, font=sub_font)
 
-        # Debug: save image to file to inspect
         img.save("/tmp/clipboard_test_image.png")
-        log.info(f"Test image saved to /tmp/clipboard_test_image.png (size={img.size}, mode={img.mode})")
+        log.info(f"Test image saved to /tmp/clipboard_test_image.png (size={img.size})")
 
         return img
 
@@ -290,4 +221,9 @@ class ClipboardDisplay:
             return ImageFont.load_default()
 
     def close(self) -> None:
+        if self._display is not None:
+            try:
+                self._display.close()
+            except Exception as exc:
+                log.debug("Display close failed: %s", exc)
         log.info("ClipboardDisplay closed")

@@ -134,11 +134,8 @@ def test_epaper(text: str, clear_after: bool, render_strategy: str) -> int:
         print(
             "ePaper detected: "
             f"{summary['width']}x{summary['height']}, "
-            f"firmware={summary['firmware_version']}, "
-            f"lut={summary['lut_version']}, "
-            f"SPI {summary['spi_bus']}.{summary['spi_device']}, "
-            f"data={summary['spi_hz']} Hz, VCOM {summary['vcom']:.2f}, "
-            f"reset={summary['reset_pin']}, ready={summary['ready_pin']}"
+            f"VCOM {summary['vcom']:.2f}, "
+            f"SPI device {summary['spi_device']}"
         )
 
         print("Clearing ePaper display")
