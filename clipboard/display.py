@@ -189,13 +189,29 @@ class ClipboardDisplay:
         self._display.frame_buf.paste(prepared)
         log.debug(f"_blit: paste complete, calling mode={mode}")
         
-        # Use appropriate refresh mode based on content type
+        # Use explicit update path (8bpp) to avoid 4bpp packing issues seen on some Zero 2W setups.
         if mode in ("text", "fast"):
-            # DU partial for responsive text/menu updates
-            self._display.draw_partial(self._constants.DisplayModes.DU)
+            display_mode = self._constants.DisplayModes.DU
         else:
-            # GC16 full (default) for best image quality
-            self._display.draw_full(self._constants.DisplayModes.GC16)
+            display_mode = self._constants.DisplayModes.GC16
+
+        # Wake controller first if available.
+        try:
+            if hasattr(self._display, "epd") and hasattr(self._display.epd, "run"):
+                self._display.epd.run()
+        except Exception as exc:
+            log.debug("epd.run() failed (continuing): %s", exc)
+
+        frame = self._display._get_frame_buf()
+        self._display.update(
+            frame.tobytes(),
+            (0, 0),
+            self._display.display_dims,
+            display_mode,
+            pixel_format=self._constants.PixelModes.M_8BPP,
+        )
+        # Keep AutoDisplay diff state coherent for any later partial paths.
+        self._display.prev_frame = frame
 
     def show_test_pattern(self, text: str = "CLANKER CLIPBOARD") -> None:
         """Render a simple full-screen test pattern for hardware bring-up."""
