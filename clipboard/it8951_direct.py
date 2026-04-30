@@ -105,11 +105,16 @@ class IT8951DirectDisplay:
             image = final
         
         self.frame_buf = image
-        
-        # TODO: Implement actual SPI communication to send frame data
-        # For now, this is a stub that just logs the operation
+
+        # NOTE: This fallback does not yet implement IT8951 frame transfer commands.
+        # It keeps the pipeline alive for diagnostics but does not update the panel.
         display_mode = "GC16 (full)" if mode == 'full' else "DU (fast)"
-        logger.info(f"Display image: {image.size}, mode={display_mode}")
+        logger.error(
+            "NO-OP display path active: IT8951DirectDisplay has no frame transfer implementation "
+            "(image=%s, mode=%s). Panel will not update.",
+            image.size,
+            display_mode,
+        )
     
     def clear(self):
         """Clear the display to white."""
