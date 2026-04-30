@@ -8,7 +8,6 @@ from typing import Union, Optional
 from pathlib import Path
 from PIL import Image
 import sys
-import importlib.util
 
 logger = logging.getLogger(__name__)
 
@@ -22,31 +21,10 @@ DISPLAY_MODE = "none"
 update_waveshare_available = False
 IT8951_AVAILABLE = False
 
-# FIRST: Try to inject shims for Cython modules in case Cython isn't available
-try:
-    # Import shim directly from file
-    shim_path = clipboard_dir / 'img_manip_shim.py'
-    if shim_path.exists():
-        spec = importlib.util.spec_from_file_location('img_manip_shim', str(shim_path))
-        shim_module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(shim_module)
-        
-        # Inject both img_manip and spi shims
-        sys.modules['IT8951.img_manip'] = shim_module
-        sys.modules['IT8951.spi'] = shim_module
-        
-        logger.info("✓ Injected Cython shims (img_manip, spi) for IT8951")
-except Exception as e:
-    logger.debug(f"Could not inject Cython shims: {e}")
 
-# SECOND: Set up IT8951 Python package path
-try:
-    it8951_src = project_root / 'IT8951' / 'src'
-    if it8951_src.exists():
-        sys.path.insert(0, str(it8951_src))
-        logger.info(f"✓ Added IT8951 src to path")
-except Exception as e:
-    logger.debug(f"✗ Could not add IT8951 src path: {e}")
+# Do NOT manually add IT8951/src to sys.path — the venv-installed IT8951
+# package includes compiled Cython extensions (.so) and must take precedence
+# over any local source tree which has no compiled extensions.
 
 # Try update_waveshare (most likely to work)
 try:
